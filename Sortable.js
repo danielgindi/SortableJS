@@ -177,7 +177,7 @@
     return false;
   }
   function getParentOrHost(el) {
-    return el.host && el !== document && el.host.nodeType ? el.host : el.parentNode;
+    return el.host && el !== document && el.host.nodeType && el.host !== el ? el.host : el.parentNode;
   }
   function closest( /**HTMLElement*/el, /**String*/selector, /**HTMLElement*/ctx, includeCTX) {
     if (el) {
@@ -1102,6 +1102,9 @@
       direction: function direction() {
         return _detectDirection(el, this.options);
       },
+      rtl: function rtl() {
+        return css(el, 'direction') === 'rtl' !== (css(el, 'flex-direction') === 'row-reverse');
+      },
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       dragClass: 'sortable-drag',
@@ -1179,8 +1182,8 @@
         lastTarget = null;
       }
     },
-    _getDirection: function _getDirection(evt, target) {
-      return typeof this.options.direction === 'function' ? this.options.direction.call(this, evt, target, dragEl) : this.options.direction;
+    _getOptionValue: function _getOptionValue(evt, target, optionName) {
+      return typeof this.options[optionName] === 'function' ? this.options[optionName].call(this, evt, target, dragEl) : this.options[optionName];
     },
     _onTapStart: function _onTapStart( /** Event|TouchEvent */evt) {
       if (!evt.cancelable) return;
@@ -1656,6 +1659,7 @@
         canSort = options.sort,
         fromSortable = putSortable || activeSortable,
         vertical,
+        rtl,
         _this = this,
         completedFired = false;
       if (_silent) return;
@@ -1765,7 +1769,8 @@
       ignoreNextClick = false;
       if (activeSortable && !options.disabled && (isOwner ? canSort || (revert = parentEl !== rootEl) // Reverting item into the original list
       : putSortable === this || (this.lastPutMode = activeGroup.checkPull(this, activeSortable, dragEl, evt)) && group.checkPut(this, activeSortable, dragEl, evt))) {
-        vertical = this._getDirection(evt, target) === 'vertical';
+        vertical = this._getOptionValue(evt, target, 'direction') === 'vertical';
+        rtl = this._getOptionValue(evt, target, 'rtl');
         dragRect = getRect(dragEl);
         dragOverEvent('dragOverValid');
         if (Sortable.eventCanceled) return completedFired;
@@ -1784,7 +1789,7 @@
           return completed(true);
         }
         var elLastChild = lastChild(el, options.draggable);
-        if (!elLastChild || _ghostIsLast(evt, vertical, this) && !elLastChild.animated) {
+        if (!elLastChild || _ghostIsLast(evt, vertical, rtl, this) && !elLastChild.animated) {
           // Insert to end of list
 
           // If already at end of list: Do not insert
@@ -1812,7 +1817,7 @@
             changed();
             return completed(true);
           }
-        } else if (elLastChild && _ghostIsFirst(evt, vertical, this)) {
+        } else if (elLastChild && _ghostIsFirst(evt, vertical, rtl, this)) {
           // Insert to start of list
           var firstChild = getChild(el, 0, options, true);
           if (firstChild === dragEl) {
@@ -2061,8 +2066,11 @@
     _nulling: function _nulling() {
       pluginEvent('nulling', this);
       rootEl = dragEl = parentEl = ghostEl = nextEl = cloneEl = lastDownEl = cloneHidden = tapEvt = touchEvt = moved = newIndex = newDraggableIndex = oldIndex = oldDraggableIndex = lastTarget = lastDirection = putSortable = activeGroup = Sortable.dragged = Sortable.ghost = Sortable.clone = Sortable.active = null;
-      savedInputChecked.forEach(function (el) {
-        el.checked = true;
+      var el = this.el;
+      savedInputChecked.forEach(function (checkEl) {
+        if (el.contains(checkEl)) {
+          checkEl.checked = true;
+        }
       });
       savedInputChecked.length = lastDx = lastDy = 0;
     },
@@ -2263,17 +2271,29 @@
   function _unsilent() {
     _silent = false;
   }
-  function _ghostIsFirst(evt, vertical, sortable) {
+  function _ghostIsFirst(evt, vertical, rtl, sortable) {
     var firstElRect = getRect(getChild(sortable.el, 0, sortable.options, true));
     var childContainingRect = getChildContainingRectFromElement(sortable.el, sortable.options, ghostEl);
     var spacer = 10;
-    return vertical ? evt.clientX < childContainingRect.left - spacer || evt.clientY < firstElRect.top && evt.clientX < firstElRect.right : evt.clientY < childContainingRect.top - spacer || evt.clientY < firstElRect.bottom && evt.clientX < firstElRect.left;
+    if (vertical) {
+      return evt.clientX < childContainingRect.left - spacer || evt.clientY < firstElRect.top && evt.clientX < firstElRect.right;
+    } else if (!rtl) {
+      return evt.clientY < childContainingRect.top - spacer || evt.clientY < firstElRect.bottom && evt.clientX < firstElRect.left;
+    } else {
+      return evt.clientY < childContainingRect.top - spacer || evt.clientY < firstElRect.bottom && evt.clientX > firstElRect.right;
+    }
   }
-  function _ghostIsLast(evt, vertical, sortable) {
+  function _ghostIsLast(evt, vertical, rtl, sortable) {
     var lastElRect = getRect(lastChild(sortable.el, sortable.options.draggable));
     var childContainingRect = getChildContainingRectFromElement(sortable.el, sortable.options, ghostEl);
     var spacer = 10;
-    return vertical ? evt.clientX > childContainingRect.right + spacer || evt.clientY > lastElRect.bottom && evt.clientX > lastElRect.left : evt.clientY > childContainingRect.bottom + spacer || evt.clientX > lastElRect.right && evt.clientY > lastElRect.top;
+    if (vertical) {
+      return evt.clientX > childContainingRect.right + spacer || evt.clientY > lastElRect.bottom && evt.clientX > lastElRect.left;
+    } else if (!rtl) {
+      return evt.clientY > childContainingRect.bottom + spacer || evt.clientX > lastElRect.right && evt.clientY > lastElRect.top;
+    } else {
+      return evt.clientY > childContainingRect.bottom + spacer || evt.clientX < lastElRect.left && evt.clientY > lastElRect.top;
+    }
   }
   function _getSwapDirection(evt, target, targetRect, vertical, swapThreshold, invertedSwapThreshold, invertSwap, isLastTarget) {
     var mouseOnAxis = vertical ? evt.clientY : evt.clientX,
